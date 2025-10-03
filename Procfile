@@ -1,1 +1,1 @@
-web: gunicorn src.app:app
+web: gunicorn applications.event-server.src.main.app:app

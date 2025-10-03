@@ -1,12 +1,8 @@
 import os
 import requests
 import sqlite3
-from flask import Flask, render_template_string
-
-app = Flask(__name__)
 
 API_KEY = os.getenv("TICKETMASTER_API_KEY", "9AUPkJGAHLnkIpTbHw7xdjbeOD2Spusb")
-
 DB_FILE = "events.db"
 
 def init_db():
@@ -25,16 +21,35 @@ def init_db():
     conn.commit()
     conn.close()
 
-init_db()
+CITY_ALIASES = {
+    "la": "Los Angeles",
+    "nyc": "New York",
+    "new-york": "New York",
+    "fort-lauderdale": "Fort Lauderdale",
+    "ft-lauderdale": "Fort Lauderdale",
+    "sf": "San Francisco",
+}
 
+def normalize_city(city: str) -> str:
+    city = city.strip().lower().replace("-", " ")
+
+    # apply aliases if available
+    if city in CITY_ALIASES:
+        return CITY_ALIASES[city]
+
+    # otherwise just capitalize each word
+    return " ".join(word.capitalize() for word in city.split())
 
 def fetch_events(city):
+    """Fetch events from Ticketmaster API for a given city"""
+    city = normalize_city(city)
+    print(f"Normalized city: {city}")  # DEBUG
+
     url = "https://app.ticketmaster.com/discovery/v2/events.json"
     params = {
         "apikey": API_KEY,
         "keyword": "concert",
         "city": city,
-        "stateCode": "FL",
         "radius": 50,
         "unit": "miles"
     }
@@ -43,8 +58,8 @@ def fetch_events(city):
     data = response.json()
     return data.get("_embedded", {}).get("events", [])
 
-
 def save_events(events):
+    """Save fetched events into SQLite DB"""
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
     for e in events:
@@ -61,44 +76,8 @@ def save_events(events):
     conn.commit()
     conn.close()
 
-
-@app.route("/")
-def index():
-    cities = ["Miami", "Fort Lauderdale", "Boca Raton", "Palm Beach", "Kendall"]
-    all_events = []
-
-    for city in cities:
-        try:
-            events = fetch_events(city)
-            save_events(events)
-            all_events.extend(events)
-        except Exception as e:
-            print(f"Error fetching {city}: {e}")
-
-    # Render events from DB
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT name, city, state, date, url FROM events ORDER BY date LIMIT 20")
-    rows = cursor.fetchall()
-    conn.close()
-
-    template = """
-    <h1>Exotic Car & Concert Events in Florida</h1>
-    {% if rows %}
-      <ul>
-      {% for name, city, state, date, url in rows %}
-        <li>
-          <b>{{ name }}</b> - {{ city }}, {{ state }} on {{ date }}
-          (<a href="{{ url }}" target="_blank">Details</a>)
-        </li>
-      {% endfor %}
-      </ul>
-    {% else %}
-      <p>No events found.</p>
-    {% endif %}
-    """
-    return render_template_string(template, rows=rows)
-
-
-if __name__ == "__main__":
-    app.run(debug=True)
+def collect_for_city(city):
+    """Helper to fetch and save events for a single city"""
+    events = fetch_events(city)
+    save_events(events)
+    return events
